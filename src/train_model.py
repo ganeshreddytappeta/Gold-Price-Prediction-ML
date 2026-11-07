@@ -41,11 +41,11 @@ METADATA_PATH = MODELS_DIR / "training_metadata.joblib"
 
 
 def compute_file_hash(file_path: str) -> str:
-    """Compute SHA-256 hash of the CSV dataset file to detect dataset changes."""
+    """Compute line-ending-normalized SHA-256 hash of the CSV dataset file."""
     hasher = hashlib.sha256()
     with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            hasher.update(chunk)
+        content = f.read().replace(b"\r\n", b"\n")
+        hasher.update(content)
     return hasher.hexdigest()
 
 
@@ -84,7 +84,10 @@ def train_and_evaluate_models(
     7. Select the best model based on chronological validation RMSE / MAE / R².
     8. Save the best model and metadata to `models/` using Joblib.
     """
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
     # 1. Load & inspect dataset
     raw_df, inspection_report = load_and_inspect_dataset(custom_data_path)
@@ -263,8 +266,6 @@ def train_and_evaluate_models(
         "unit_info": inspection_report["unit_info"],
         "dataset_hash": dataset_hash,
     }
-    joblib.dump(best_model_bundle, BEST_MODEL_PATH)
-
     # Save comprehensive training metadata to `models/training_metadata.joblib`
     training_metadata = {
         "best_model_name": best_model_name,
@@ -291,7 +292,12 @@ def train_and_evaluate_models(
         "preprocessing_summary": preprocessing_summary,
         "dataset_hash": dataset_hash,
     }
-    joblib.dump(training_metadata, METADATA_PATH)
+    try:
+        joblib.dump(best_model_bundle, BEST_MODEL_PATH)
+        joblib.dump(training_metadata, METADATA_PATH)
+    except OSError:
+        # In read-only serverless containers (e.g. Vercel), keep artifacts in memory
+        pass
 
     return training_metadata
 
